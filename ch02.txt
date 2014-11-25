@@ -1,0 +1,312 @@
+chapter: Getting Started with Yaws
+==================
+Example: YAWS at startup
+
+Eshell V5.8.3  (abort with ^G)
+(yaws@sag)1> 
+=INFO REPORT==== 1-Feb-2012::11:32:16 ===
+Yaws: Using config file yaws.conf
+(yaws@sag)1> 
+=ERROR REPORT==== 1-Feb-2012::11:32:16 ===
+'auth_log' global variable is deprecated and ignored. it is now a per-server variable
+(yaws@sag)1> yaws:Add path "/usr/lib/yaws/custom/ebin"
+(yaws@sag)1> yaws:Add path "/usr/local/lib/yaws/examples/ebin"
+(yaws@sag)1> yaws:Running with id="default" (localinstall=false) 
+Running with debug checks turned on (slower server) 
+Logging to directory "/var/log/yaws"
+(yaws@sag)1> 
+=INFO REPORT==== 1-Feb-2012::11:32:17 ===
+Ctlfile : /home/zkessin/.yaws/yaws/default/CTL
+(yaws@sag)1> 
+=INFO REPORT==== 1-Feb-2012::11:32:17 ===
+Yaws: Listening to 0.0.0.0:8081 for <1> virtual servers:
+ - http://www:8081 under /home/zkessin/Writing/ErlangBook/yaws/DocRoot
+(yaws@sag)1>
+    
+    
+====================================
+Example: ls and pwd
+
+Erlang R14B02 (erts-5.8.3) [source] [64-bit] [smp:4:4] [rq:4] [async-threads:0] [kernel-poll:false]
+
+Eshell V5.8.3  (abort with ^G)
+1> pwd().
+/home/zkessin/Writing/ErlangBook/running
+ok
+2> ls().
+.svn            example.erl     test.erl        
+ok
+3> c(test).
+{ok,test}
+4> test:test(1234).
+1234
+5>
+    
+    
+====================================
+Example: test.erl
+
+-module(test).
+-export([test/1]).
+test(X) ->
+    X.
+    
+    
+====================================
+Example: Erlang path (Truncated)
+
+(yaws@sag)16> code:get_path().
+["/usr/local/lib/yaws/ebin",".",
+ "/usr/lib/erlang/lib/kernel-2.14.3/ebin",
+ "/usr/lib/erlang/lib/stdlib-1.17.3/ebin",
+ "/usr/lib/erlang/lib/xmerl-1.2.8/ebin",
+ "/usr/lib/erlang/lib/wx-0.98.9",
+ "/usr/lib/erlang/lib/webtool-0.8.7/ebin",
+ "/usr/lib/erlang/lib/typer-0.9/ebin",
+ "/usr/lib/erlang/lib/tv-2.1.4.6/ebin",
+ "/usr/lib/erlang/lib/tools-2.6.6.3/ebin",
+    
+    
+====================================
+Example: Structure of the #arg{} record
+
+-record(arg, {
+          clisock,        %% the socket leading to the peer client
+          client_ip_port, %% {ClientIp, ClientPort} tuple
+          headers,        %% headers
+          req,            %% request
+          clidata,        %% The client data (as a binary in POST requests)
+          server_path,    %% The normalized server path
+                          %% (pre-querystring part of URI)
+          querydata,      %% For URIs of the form ...?querydata
+                          %%  equiv of cgi QUERY_STRING
+          appmoddata,     %% (deprecated - use pathinfo instead) the remainder
+                          %% of the path leading up to the query
+          docroot,        %% Physical base location of data for this request
+          docroot_mount,  %% virtual directory e.g /myapp/ that the docroot
+                          %%  refers to.
+          fullpath,       %% full deep path to yaws file
+          cont,           %% Continuation for chunked multipart uploads
+          state,          %% State for use by users of the out/1 callback
+          pid,            %% pid of the yaws worker process
+          opaque,         %% useful to pass static data
+          appmod_prepath, %% (deprecated - use prepath instead) path in front
+                          %%of: <appmod><appmoddata>
+          prepath,        %% Path prior to 'dynamic' segment of URI.
+                          %%  ie http://some.host/<prepath>/<script-point>/d/e
+                          %% where <script-point> is an appmod mount point,
+                          %% or .yaws,.php,.cgi,.fcgi etc script file.
+          pathinfo        %% Set to '/d/e' when calling c.yaws for the request
+                          %% http://some.host/a/b/c.yaws/d/e
+                          %%  equiv of cgi PATH_INFO
+         }).
+    
+    
+====================================
+Example: Using ARG
+
+<erl>
+method(Arg) ->
+  Rec = Arg#arg.req,
+  Rec#http_request.method.
+
+out(Arg) -> 
+  {ehtml, f("Method: ~s" , [method(Arg)])}.
+</erl>
+    
+    
+====================================
+Example: Calling an external function
+
+<erl>
+out(Arg) ->
+    my_module:some_func(Arg).
+</erl>
+    
+    
+====================================
+Example: Displaying POST variables
+
+<erl>
+out(Arg) ->
+  {ehtml, f("~p", [yaws_api:parse_post(Arg)])}. 
+</erl>
+    
+    
+====================================
+Example: EHTML example
+
+{table, [],
+ {tr, [{class, "row"}], 
+  [{td, [], "Hello World"}]}}
+    
+    
+====================================
+Example: EHTML example output
+
+<table> 
+<tr class="row"> 
+<td>Hello World</td></tr></table>
+    
+    
+====================================
+Example: Headers and content
+
+<erl>
+out(Arg) ->
+	 [{html, "Header with HTML"},
+	  {header, "X-Server: Yaws"}].
+</erl>
+    
+    
+====================================
+Example: Headers and content response
+
+HTTP/1.1 200 OK
+Server: Yaws 1.90
+Date: Fri, 30 Dec 2011 08:50:32 GMT
+Content-Type: text/html
+X-Server: Yaws
+
+Header with HTML
+    
+    
+====================================
+Example: Redirect
+
+<erl>
+out(Arg) ->
+    URL = "http://www.erlang.org",
+    {redirect, URL}.
+</erl>
+    
+    
+====================================
+Example: Local redirect
+
+<erl>
+out(Arg) ->
+    RELATIVE_URI = "/some_other_file.yaws",
+    {redirect_local, RELATIVE_URI}.
+</erl>
+    
+    
+====================================
+Example: Compiling ErlyDTL templates
+
+(yaws@sag)1> code:add_patha("<root>/templates/erlydtl/ebin").
+true
+(yaws@sag)2> l(erlydtl).
+{module,erlydtl}
+(yaws@sag)3> cd("templates").
+/home/zkessin/Writing/ErlangBook/yaws
+ok
+(yaws@sag)4> erlydtl:compile("<root>/templates/hello-world.dtl", hello_world).
+ok
+    
+    
+====================================
+	  erlydtl_compile templates/hello_world.dtl hello_world ebin
+    
+    
+====================================
+Example: ErlyDTL compile script
+
+#!/usr/bin/env escript
+-export([main/1]).
+
+main([File_Name, Module, BinDir]) ->
+    l(erlydtl),
+    erlydtl:compile(File_Name, 
+		    Module, 
+		    [{out_dir,BinDir}]).
+    
+    
+====================================
+Example: A simple DTL template
+
+<h1>Hello {{ planet }}</h1>
+    
+    
+====================================
+Example: Calling the template
+
+<erl>
+out(Arg) ->
+    {ok,HTML} = hello_world:render([{planet, "Earth"}]),
+    {html, HTML}.
+</erl>
+    
+    
+====================================
+Example: Template output
+
+<h1>Hello Earth </h1>
+    
+    
+====================================
+Example: RSS template
+
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>Ferd.ca</title>
+    <link>{{ url.base }}</link>
+    <description>My own blog about programming and whatnot.</description>
+    <language>en-us</language>
+    <pubDate>{{ latest_date }}</pubDate>
+    <lastBuildDate>{{ latest_date }}</lastBuildDate>
+	<ttl>60</ttl>
+	
+    {% for article in articles %}
+    <item>
+      <title>{{ article.title }}</title>
+      <link>{{ url.base }}{{ article.slug }}.html</link>
+      <description>{{ article.desc }}</description>
+      <pubDate>{{ article.date }}</pubDate>
+      <guid>{{ url.base }}{{ article.slug }}.html</guid>
+    </item>
+    {% endfor %}
+ 
+  </channel>
+</rss>
+    
+    
+====================================
+Example: Access log
+
+127.0.0.1 - - [24/Feb/2012:11:31:02 +0200] "GET /templates/hello-world.yaws HTTP/1.1" 500 774 
+"-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.7 (KHTML, like Gecko) 
+Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7"
+    
+    
+====================================
+Example: Report log
+
+=INFO REPORT==== 20-Sep-2011::13:49:39 ===
+Yaws: Listening to 0.0.0.0:8080 for <1> virtual servers:
+ - http://localhost:8080 under /usr/share/yaws
+
+=ERROR REPORT==== 24-Sep-2011::19:15:26 ===
+Yaws: bad conf: Expect directory at line 130 (docroot: /var/www/yaws) terminating
+    
+    
+====================================
+Example: Code with logging
+
+<erl>
+out(Arg) ->
+    error_logger:info_msg("~p:~p User Entered the System~n",
+			  [?MODULE,?LINE]),
+    {html, "Logger"}.
+</erl>
+    
+    
+====================================
+Example: Log message
+
+=INFO REPORT==== 16-Jan-2012::13:38:52 ===
+m1:13 User Entered the System
+    
+    
+==================

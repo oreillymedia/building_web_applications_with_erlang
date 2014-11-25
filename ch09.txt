@@ -1,0 +1,865 @@
+chapter: Building an Application with OTP
+==================
+Example: Generate unique IDS (uniq.erl)
+
+-module(uniq).
+-behaviour(gen_server).
+
+%% API
+-export([start_link/0]).
+-export([get_id/0]).
+%% gen_server callbacks
+-export([init/1, 
+	 handle_call/3, 
+	 handle_cast/2, 
+	 handle_info/2,
+	 terminate/2, 
+	 code_change/3]).
+
+-define(SERVER, ?MODULE). 
+
+-record(state, {count}).
+
+get_id() ->
+    {id, ID} = gen_server:call(?MODULE, {}),
+    ID.
+
+
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+init([]) ->
+    {ok, #state{count= 1 }}.
+
+handle_call(_Request, _From, State) ->
+    Count = State#state.count,
+    {reply, 
+     {id, Count}, 
+     #state{count = Count + 1}}.
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+    
+    
+====================================
+Example: Multicast server
+
+%%%-------------------------------------------------------------------
+%%% @author Zach Kessin <>
+%%% @copyright (C) 2012, Zach Kessin
+%%% @doc
+%%%
+%%% @end
+%%% Created : 21 Mar 2012 by Zach Kessin <>
+%%%-------------------------------------------------------------------
+-module(multi_cast_server).
+
+-behaviour(gen_server).
+
+%% API
+-export([start_link/0]).
+
+-export([get_current_user_status/0,
+	 get_current_user_status/1,
+	 update_status/2]).
+
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	 terminate/2, code_change/3]).
+
+-define(SERVER, ?MODULE). 
+
+
+
+
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+get_current_user_status() ->
+    gen_server:call(?MODULE, {get_current_user_status}).
+    
+
+get_current_user_status(User) ->
+    gen_server:call(?MODULE, {get_current_user_status, User}).
+    
+
+update_status(User, Status) ->
+    ok = gen_server:call(?MODULE, {update_status, User, Status}),
+    ok.
+
+%%%===================================================================
+%%% Functions for internal Use
+%%%===================================================================
+
+update_user_status([], User, Status) ->
+    [{User, Status}];
+
+update_user_status([{User, _OldStatus} | Tail], User, Status) ->
+    [{User,Status} | Tail];
+
+update_user_status([{O,S}|Tail], User, Status) ->
+    R = update_user_status(Tail, User, Status),
+    [{O,S}|R].
+
+get_user_status(UserStatus, TargetUser) ->    
+    case lists:filter(fun({User,_Status}) ->
+			      User == TargetUser
+		      end,
+		      UserStatus) of
+	[] ->
+	    no_status;
+	[TargetUserStatus] ->
+	    {ok, TargetUserStatus}
+    end.
+    
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the server
+%%
+%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
+%% @end
+%%--------------------------------------------------------------------
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Initializes the server
+%%
+%% @spec init(Args) -> {ok, State} |
+%%                     {ok, State, Timeout} |
+%%                     ignore |
+%%                     {stop, Reason}
+%% @end
+%%--------------------------------------------------------------------
+
+
+init([]) ->
+    io:format("~n~p:~p(~p) init(~p)~n",
+	      [?MODULE, ?LINE, self(), []]),
+
+    {ok, []};
+
+init(Status) ->
+    io:format("~n~p:~p(~p) init(~p)~n",
+	      [?MODULE, ?LINE, self(), Status]),
+    {ok, Status}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling call messages
+%%
+%% @spec handle_call(Request, From, State) ->
+%%                                   {reply, Reply, State} |
+%%                                   {reply, Reply, State, Timeout} |
+%%                                   {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, Reply, State} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+
+
+handle_call({get_current_user_status}, _From, State) ->
+    {reply, 
+     {ok, State},
+     State};
+
+handle_call({get_current_user_status, User}, _From, State) ->
+    {reply, 
+     get_user_status(State, User),
+     State};
+
+
+handle_call({update_status, User, Status}, _From, State) ->
+    io:format("~p:~p (~p) Update ~p -> ~p ~n",
+	      [?MODULE, ?LINE, self(), User, Status]),
+    io:format("STATE ~p ~n", [State]),
+    NewState = update_user_status(State, User, Status),
+    {reply, ok, NewState}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling cast messages
+%%
+%% @spec handle_cast(Msg, State) -> {noreply, State} |
+%%                                  {noreply, State, Timeout} |
+%%                                  {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Handling all non call/cast messages
+%%
+%% @spec handle_info(Info, State) -> {noreply, State} |
+%%                                   {noreply, State, Timeout} |
+%%                                   {stop, Reason, State}
+%% @end
+%%--------------------------------------------------------------------
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% This function is called by a gen_server when it is about to
+%% terminate. It should be the opposite of Module:init/1 and do any
+%% necessary cleaning up. When it returns, the gen_server terminates
+%% with Reason. The return value is ignored.
+%%
+%% @spec terminate(Reason, State) -> void()
+%% @end
+%%--------------------------------------------------------------------
+terminate(_Reason, _State) ->
+    ok.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Convert process state when code is changed
+%%
+%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
+%% @end
+%%--------------------------------------------------------------------
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+    
+    
+====================================
+Example: Multicast server test
+
+c(multi_cast_server).
+multi_cast_server:start_link().
+multi_cast_server:update_status("Zach","Testing").
+multi_cast_server:update_status("Nati","TV").
+multi_cast_server:update_status("Zach","Coding").
+multi_cast_server:get_current_user_status("Zach").
+multi_cast_server:get_current_user_status().
+    
+    
+====================================
+Example: Get status (status.yaws)
+
+<erl>
+convert_to_json(Data) ->
+    Content = [{obj, [{name,   list_to_binary(Name)},
+		     {status, list_to_binary(Status)}]} || 
+		 {Name, Status} <-Data],
+    {obj, [{data, Content}]}.
+    
+      
+out(_Arg) ->
+    {ok, Obj} = multi_cast_server:get_current_user_status(),
+    io:format("~n (~p) Raw Data ~p~n", [self(), Obj]),
+    JSON = rfc4627:encode(convert_to_json(Obj)),
+    io:format("~n (~p) JSON ->  ~p~n", [self(), JSON]),
+    {content, "application/json", JSON}.
+</erl>
+    
+    
+====================================
+Example: Get status log data
+
+ (<0.365.0>) Raw Data [{"Zach","Coding"},{"Nati","TV"}]
+ (<0.365.0>) JSON -> 
+     "[{\"name\":\"Zach\",\"status\":\"Coding\"},{\"name\":\"Nati\",\"status\":\"TV\"}]"
+    
+    
+====================================
+Example: Set status (set-status.yaws)
+
+<erl>
+out(Arg) ->
+    {ok, Name}   = postvar(Arg, "name"),
+    {ok, Status} = postvar(Arg, "status"),
+    io:format("~n(~p) Name ~p, Status ~p ~n",
+	      [self(), Name, Status]),
+    multi_cast_server:update_status(Name, Status),
+    {html, "true"}.
+
+
+</erl>
+    
+    
+====================================
+Example: Socket handler (socket_handler.coffee)
+
+makeStore = ->
+        store = Ext.create("Ext.data.Store",
+                autoLoad : true
+                fields   : ["name","status"]
+                proxy    :
+                        type   : "ajax"
+                        url    : "status.yaws"
+                        reader :
+                                type: "json"
+                                root: "data"
+                )
+        console.log(store)
+        store
+
+setupMultiCast = ->
+        store = makeStore()
+        form  = Ext.create("Ext.form.Panel",
+                buttons:
+                        {
+                                xtype: "button"
+                                text: "Set Status"
+                                handler: () ->
+                                        values = form.getValues()
+                                        console.log(values)
+                                        Ext.Ajax.request(
+                                                url: "set-status.yaws",
+                                                params: values
+                                                success: () ->
+                                                        store.load()
+                                                        alert("Data Reloaded")
+                                        )
+
+
+                        }
+                title: "Set Status"
+                items: [
+                        {
+                                xtype      : "textfield"
+                                name       : "name"
+                                fieldLabel : "User"
+                                width      : 400
+                        }
+                        {
+                                xtype      : "textarea"
+                                name       : "status"
+                                fieldLabel : "Status"
+                                width      : 400
+                        }
+                        ]
+        )
+
+        grid  = Ext.create("Ext.grid.Panel",
+                width    : 500
+                height   : 350,
+                frame    : true
+                renderTo : "multi_cast"
+                store    : store
+                title    : "User Status"
+                bbar     : form
+                buttons  : [
+                        {
+                                text: "Reload"
+                                handler: () -> store.load()
+                        }]
+
+                columns:
+                        [
+                                {
+                                        text: "User"
+                                        width: 80
+                                        sortable: true
+                                        dataIndex: "name"
+                                }
+                                {
+                                        text: "Status"
+                                        dataIndex: "status"
+                                        sortable: true
+                                        width: 300
+                                }
+                        ]
+
+                )
+
+Ext.onReady setupMultiCast
+    
+    
+====================================
+Example: Setting up our Supervisor
+
+%%%-------------------------------------------------------------------
+%%% @author Zach Kessin <>
+%%% @copyright (C) 2012, Zach Kessin
+%%% @doc
+%%%
+%%% @end
+%%% Created : 18 Mar 2012 by Zach Kessin <>
+%%%-------------------------------------------------------------------
+-module(multi_cast_sup).
+
+-behaviour(supervisor).
+
+%% API
+-export([start_link/0]).
+
+%% Supervisor callbacks
+-export([init/1]).
+
+-define(SERVER, ?MODULE).
+
+%%%===================================================================
+%%% API functions
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the supervisor
+%%--------------------------------------------------------------------
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+%%%===================================================================
+%%% Supervisor callbacks
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Whenever a supervisor is started using supervisor:start_link/[2,3],
+%% this function is called by the new process to find out about
+%% restart strategy, maximum restart frequency and child
+%% specifications.
+%%
+%% @spec init(Args) -> {ok, {SupFlags, [ChildSpec]}} |
+%%                     ignore |
+%%                     {error, Reason}
+%% @end
+%%--------------------------------------------------------------------
+init([]) ->
+    RestartStrategy             = one_for_one,
+    MaxRestarts                 = 1000,
+    MaxSecondsBetweenRestarts   = 3600,
+
+    SupFlags                    = {RestartStrategy, 
+                                   MaxRestarts, 
+                                   MaxSecondsBetweenRestarts},
+
+    Restart                     = permanent,
+    Shutdown                    = 2000,
+    Type                        = worker,
+
+    AChild                      = {'process_id', 
+                                   {'AModule', start_link, []},
+                                   Restart, 
+                                   Shutdown, 
+                                   Type, 
+                                   ['AModule']},
+
+    {ok, {SupFlags, [AChild]}}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+    
+    
+====================================
+Example: Process init structure
+
+{
+  Process_id, 
+  {Module, start_link, []},
+  Restart, 
+  Shutdown, 
+  Type, 
+  [Module]
+}
+    
+    
+====================================
+update_user_status(_users,_User, "") ->
+    ok = status;
+    
+    
+====================================
+Example: Running the supervisor
+
+2> multi_cast_server:start_link().
+{ok,<0.63.0>}
+3> multi_cast_server:update_status("Zach","").
+multi_cast_server:136 (<0.63.0>) Update "Zach" -> [] 
+STATE [] 
+
+=ERROR REPORT==== 3-Apr-2012::13:04:00 ===
+** Generic server multi_cast_server terminating 
+** Last message in was {update_status,"Zach",[]}
+** When Server state == []
+** Reason for termination == 
+** {{badmatch,status},
+    [{multi_cast_server,update_user_status,3},
+     {multi_cast_server,handle_call,3},
+     {gen_server,handle_msg,5},
+     {proc_lib,init_p_do_apply,3}]}
+** exception exit: {badmatch,status}
+     in function  multi_cast_server:update_user_status/3
+     in call from multi_cast_server:handle_call/3
+     in call from gen_server:handle_msg/5
+     in call from proc_lib:init_p_do_apply/3
+    
+    
+====================================
+Example: Caching the results (multi_cast_front)
+
+%%%-------------------------------------------------------------------
+%%% @author Zach Kessin <>
+%%% @copyright (C) 2012, Zach Kessin
+%%% @doc
+%%%
+%%% @end
+%%% Created :  5 Apr 2012 by Zach Kessin <>
+%%%-------------------------------------------------------------------
+-module(multi_cast_front).
+
+-behaviour(gen_server).
+
+%% API
+-export([start_link/0]).
+
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	 terminate/2, code_change/3]).
+-export([get_json/0, get_etag/0, update_status/2]).
+-export([convert_to_json/1, make_state/0]).
+-define(SERVER, ?MODULE). 
+
+
+
+-record(state, {etag, json}).
+
+get_json() ->
+    gen_server:call(?MODULE, {get_json}).
+
+get_etag() ->
+    gen_server:call(?MODULE, {get_etag}).
+
+update_status(User, Status) ->
+    multi_cast_server:update_status(User, Status),
+    gen_server:call(?MODULE, {update_status}).
+
+
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the server
+%%
+%% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
+%% @end
+%%--------------------------------------------------------------------
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
+
+
+init([]) ->
+    io:format("~n~p:~p(~p) init(~p)~n",
+	      [?MODULE, ?LINE, self(), []]),
+
+    State = make_state(),
+    {ok, State}.
+
+handle_call({get_json}, _From, State) ->
+    {reply, State#state.json, State};
+
+handle_call({get_etag}, _From, State) ->
+    {reply, State#state.etag, State};
+
+handle_call({update_status}, _From, _State) ->
+    NewState = make_state(),
+    {noreply, NewState}.
+
+
+	
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+convert_to_json(Data) ->
+    Content = [{obj, [
+		      {name,   list_to_binary(Name)},
+		      {status, list_to_binary(Status)}]} || 
+		 {Name, Status} <-Data],
+    {obj, [{data, Content}]}.
+   
+ 
+make_state () ->  
+    {ok, Data}	= multi_cast_server:get_current_user_status(),
+    io:format("~n~p:~p(~p) new data  ~p~n",
+	      [?MODULE, ?LINE, self(), Data]),
+
+    Json	= rfc4627:encode(convert_to_json(Data)),
+    Etag	= base64:encode_to_string(crypto:md5(Json)),
+    io:format("~n~p:~p(~p) new data Etag: ~p ~p~n",
+	      [?MODULE, ?LINE, self(), Etag, Json]),
+    NewState	= #state{
+      json = Json, 
+      etag = Etag},
+    NewState.
+    
+    
+====================================
+Example: Setting up our supervisor (Take 2)
+
+-module(multi_cast_sup2).
+
+-behaviour(supervisor).
+
+%% API
+-export([start_link/0]).
+
+%% Supervisor callbacks
+-export([init/1]).
+
+-define(SERVER, ?MODULE).
+
+%%%===================================================================
+%%% API functions
+%%%===================================================================
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Starts the supervisor
+%%--------------------------------------------------------------------
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+%%%===================================================================
+%%% Supervisor callbacks
+%%%===================================================================
+
+init([]) ->
+    io:format("~n~p:~p (~p) init([]) ~n",
+	      [?MODULE, ?LINE, self()]),
+    RestartStrategy             = rest_for_one,
+    MaxRestarts                 = 1000,
+    MaxSecondsBetweenRestarts   = 3600,
+    ServerName			= multi_cast_server,
+    ServerFrontName             = multi_cast_front, 
+    SupFlags                    = {RestartStrategy, 
+                                   MaxRestarts, 
+                                   MaxSecondsBetweenRestarts},
+
+    Restart                     = permanent,
+    Shutdown                    = 2000,
+    Type                        = worker,
+
+    Server                      = {'multi_cast_server_id', 
+                                   {ServerName, start_link, []},
+                                   Restart, 
+                                   Shutdown, 
+                                   Type, 
+                                   [ServerName]},
+    Front                      ={'multi_cast_front_id', 
+                                   {ServerFrontName, start_link, []},
+                                   Restart, 
+                                   Shutdown, 
+                                   Type, 
+                                   [ServerFrontName]},
+    {ok, {SupFlags, [Server, Front]}}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+    
+    
+====================================
+Example: Setting the status with the front controller
+      (set-status2.yaws)
+
+<erl>
+out(Arg) ->
+    {ok, Name}   = postvar(Arg, "name"),
+    {ok, Status} = postvar(Arg, "status"),
+    io:format("~n(~p) Name ~p, Status ~p ~n",
+	      [self(), Name, Status]),
+    multi_cast_front:update_status(Name, Status),
+    {html, "true"}.
+
+
+</erl>
+    
+    
+====================================
+Example: Getting status with ETags (status2.yaws)
+
+<erl>
+
+get_etag_header(Arg) ->
+    Headers = Arg#arg.headers,
+    Headers#headers.if_none_match.
+   
+get_response(Current_Etag, Header_Etag) 
+  when Current_Etag =:= Header_Etag ->
+    {status, 304};
+get_response(Current_Etag, _Header_Etag) ->
+    JSON = multi_cast_front:get_json(),
+    io:format("~n (~p) JSON ->  ~p~n", [self(), JSON]),
+    [
+     {content, "application/json", JSON},
+     {header, "Etag: "++ Current_Etag}
+    ].
+
+out(Arg) ->
+    Header_Etag		= get_etag_header(Arg),
+    Current_Etag	= multi_cast_front:get_etag(),
+    io:format("~n (~p) If-None-Match: ~p ~n", [self(), Header_Etag]),
+    io:format("~n (~p) ETag:  ~p ~n", [self(), Current_Etag]),
+    get_response(Current_Etag, Header_Etag).
+</erl>
+    
+    
+====================================
+Example: The output from 
+
+HTTP/1.1 200 OK
+Server: Yaws/1.92 Yet Another Web Server
+Date: Tue, 10 Apr 2012 15:44:58 GMT
+Content-Length: 12
+Content-Type: application/json
+Etag: 4CNCRcsAqiYMz6mamgsjXg==
+
+{"data":[]}
+    
+    
+====================================
+Example: Cache hit from 
+
+HTTP/1.1 304 Not Modified
+Server: Yaws/1.92 Yet Another Web Server
+Date: Tue, 10 Apr 2012 15:49:30 GMT
+Content-Length: 1
+Content-Type: text/html
+    
+    
+====================================
+Example: Setting up our application
+
+%%%-------------------------------------------------------------------
+%%% @author Zach Kessin <>
+%%% @copyright (C) 2012, Zach Kessin
+%%% @doc
+%%%
+%%% @end
+%%% Created : 18 Mar 2012 by Zach Kessin <>
+%%%-------------------------------------------------------------------
+-module(multi_cast_app).
+
+-behaviour(application).
+
+%% Application callbacks
+-export([start/2, stop/1]).
+
+%%%===================================================================
+%%% Application callbacks
+%%%===================================================================
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% This function is called whenever an application is started using
+%% application:start/[1,2], and should start the processes of the
+%% application. If the application is structured according to the OTP
+%% design principles as a supervision tree, this means starting the
+%% top supervisor of the tree.
+%%
+%% @spec start(StartType, StartArgs) -> {ok, Pid} |
+%%                                      {ok, Pid, State} |
+%%                                      {error, Reason}
+%%      StartType = normal | {takeover, Node} | {failover, Node}
+%%      StartArgs = term()
+%% @end
+%%--------------------------------------------------------------------
+start(_StartType, _StartArgs) ->
+    io:format("~n~p:~p (~p) start(~p, ~p) ~n",
+              [?MODULE, ?LINE, self(), _StartType, _StartArgs]),
+    case multi_cast_sup2:start_link() of
+        {ok, Pid} ->
+            {ok, Pid};
+        Error ->
+            Error
+                end.
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% This function is called whenever an application has stopped. It
+%% is intended to be the opposite of Module:start/2 and should do
+%% any necessary cleaning up. The return value is ignored.
+%%
+%% @spec stop(State) -> void()
+%% @end
+%%--------------------------------------------------------------------
+stop(_State) ->
+    ok.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+    
+    
+====================================
+Example: Setting up our application (multi_cast.app)
+
+{
+  application,
+  multi_cast,
+  [
+   {description, "Multi Cast Example"},
+   {vsn, "1.0.0"},
+   {modules, 
+    [
+     multi_cast_app, 
+     multi_cast_sup2, 
+     multi_cast_server,
+     multi_cast_front
+    ]},
+   {registered, [multi_cast_server, multi_cast_front, multi_cast_sup2]},
+   {mod, {multi_cast_app, []}}
+  ]
+}.
+    
+    
+==================

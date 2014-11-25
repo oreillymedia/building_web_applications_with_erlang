@@ -1,0 +1,235 @@
+chapter: Using the HTTP Client
+==================
+Example: A simple HTTP request
+
+14> httpc:request("http://www.google.com").
+{ok,{{"HTTP/1.1",200,"OK"},
+     [{"cache-control","private, max-age=0"},
+      {"date","Tue, 24 Apr 2012 17:59:10 GMT"},
+      {"server","gws"},
+      {"content-length","40887"},
+      {"content-type","text/html; charset=windows-1255"},
+      {"expires","-1"},
+      {"x-xss-protection","1; mode=block"},
+      {"x-frame-options","SAMEORIGIN"}],
+     "<!doctype html>..."}}
+    
+    
+====================================
+Example: HTTP post
+
+-module(post).
+-export([post/3]).
+
+post(url_encoding, URL, Payload) ->
+    httpc:request(post, {URL,
+			 [],
+			 "application/x-www-form-urlencoded",
+			 Payload},
+		  [],
+		  []);
+post(json, URL, Payload) ->
+    httpc:request(post, {URL,
+			 [],
+			 "application/json",
+			 Payload},
+		  [],
+		  []).
+    
+    
+====================================
+-module('async_request').
+-export([async_request/1]).
+async_request(URL) ->
+    {ok, RequestId} =
+	httpc:request(get, {URL, []}, [], [{sync, false}]),
+    receive 
+	{http, {RequestId, Result}} -> 
+	    Result 
+    after 500 -> 
+	    error 
+    end.
+    
+    
+====================================
+Example: Save to a file (stream_to.erl)
+
+-module('stream_to').
+-export([stream_to/2]).
+
+
+stream_to(URL, Filename) ->
+        httpc:request(get, 
+		      {URL,[]},
+		      [],
+		      [{stream, Filename}]
+		      ).
+    
+    
+====================================
+Example: Using OAuth (oauth.erl)
+
+-module(oauth).
+
+-export([auth/2]).
+
+
+auth(Site, OAuthToken) ->
+    URL = lists:flatten(io_lib:format("~s~s", [Site, OAuthToken])),
+    io:format("~n~p:~p (~p)~n OAuth URL ~p~n", [?MODULE, ?LINE, self(), URL]), 
+    {ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}} = httpc:request(URL),
+    {ok, JSON,_} = rfc4627:decode(Body),
+    io:format("~n~p:~p (~p)~n JSON: ~p~n", [?MODULE, ?LINE, self(), JSON]), 
+    JSON.
+    
+    
+====================================
+Example: Initial JSON
+
+{
+    "algorithm": "HMAC-SHA256",
+    "issued_at": 1335672795,
+    "user": {
+        "country": "il",
+        "locale": "en_US",
+        "age": {
+            "min": 21
+        }
+    }
+}
+    
+    
+====================================
+Example: Facebook interface Yaws file (facebook.yaws)
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta   http-equiv	="Content-Type" 
+	    content	="text/html; charset=UTF-8">  
+    <title>Canvas</title>
+  </head>
+  <body>
+    <pre>
+      <erl>
+out(Arg) ->    
+    {ok, SignedRequest} = postvar(Arg, "signed_request"),    
+    ParsedRequest	= facebook:parse_signed_request(SignedRequest),
+    facebook:response(facebook:user_has_authorized(ParsedRequest)).
+      </erl>
+    </pre>
+  </body>
+</html>
+    
+    
+====================================
+Example: Facebook interface (facebook.erl)
+
+-module(facebook).
+
+
+-export([parse_signed_request/1,
+         user_has_authorized/1, 
+         make_redirect_script/0, 
+         get_user_id/1,
+         get_user_info/1,
+         response/1]).
+
+-define(SECRET,            "********************************").
+-define(APP_ID,            "***************").
+-define(APP_NAMESPACE,     "*************").
+
+
+parse_signed_request(SignedRequest) ->
+    [_EncodingSig, Payload]     = string:tokens(SignedRequest, "."),    
+    PayloadJson                 = tt:fb_decode_base64(Payload),
+    {ok, JSON, _}               = rfc4627:decode(PayloadJson),
+    JSON.
+
+user_has_authorized(ParsedRequest) ->
+    rfc4627:get_field(ParsedRequest, "oauth_token", undefined).
+
+get_user_id(ParsedRequest) ->
+    rfc4627:get_field(ParsedRequest, "user_id", undefined).
+
+make_user_redirect_url()->
+    URLPatern           = 
+	"https://www.facebook.com/dialog/oauth/?client_id=~s&redirect_uri=~s&scope=~s",
+    RedirectURL         = lists:flatten(io_lib:format( "https://apps.facebook.com/~s",
+						       [?APP_NAMESPACE])),
+    Permission_Names    = string:join(["user_interests", 
+				       "user_location", 
+				       "user_photos", 
+				       "user_hometown", 
+				       "email"], 
+				      ","),
+    URL                 = io_lib:format(URLPatern, 
+                                        [?APP_ID,
+                                         yaws_api:url_encode(RedirectURL),
+                                         Permission_Names]),
+    lists:flatten(URL).
+                         
+    
+make_redirect_script() ->
+    Url		= make_user_redirect_url(),
+    Tag		= "<a href=~p>~p</a>",
+    Script	= io_lib:format(Tag, [Url,Url]),
+    lists:flatten(Script).
+
+get_user_info(OAuthToken) ->
+    URL = lists:flatten("https://graph.facebook.com/me?access_token=" 
+			++ binary:bin_to_list(OAuthToken)),
+    io:format("~n~p:~p (~p)~n OAuth URL ~p~n", [?MODULE, ?LINE, self(), URL]), 
+    {ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}} = httpc:request(URL),
+    {ok, JSON,_} = rfc4627:decode(Body),
+    io:format("~n~p:~p (~p)~n JSON: ~p~n", [?MODULE, ?LINE, self(), Body]), 
+    JSON.
+
+
+response(undefined)->
+    {html, facebook:make_redirect_script()};
+response(OAuthToken) ->
+    UserInfo    = get_user_info(OAuthToken),
+    io:format("~n~p:~p (~p)~n JSON: ~p~n", [?MODULE, ?LINE, self(), UserInfo]), 
+    JSON        = rfc4627:encode(UserInfo),
+    [
+     {ehtml,  {script,[], "user_info_data = " ++ JSON}}].
+    
+    
+====================================
+Example: Authorized JSON
+
+{
+    "algorithm": "HMAC-SHA256",
+    "expires": 1335679200,
+    "issued_at": 1335673105,
+    "oauth_token": "AAAB9elehJ9...",
+    "user": {
+        "country": "il",
+        "locale": "en_US",
+        "age": {
+            "min": 21
+        }
+    },
+    "user_id": "100************"
+}
+    
+    
+====================================
+Example: Using OAuth (oauth.json)
+
+{
+    "id": "***************",
+    "name": "Joshua Levi",
+    "first_name": "Joshua",
+    "last_name": "Levi",
+    "link": "http:\\/\\/www.facebook.com\\/profile.php?id=***************",
+    "gender": "male",
+    "email": "zkessin\\u0040**********.***",
+    "timezone": 3,
+    "locale": "en_US",
+    "updated_time": "2010-10-17T10:49:04+0000"
+}
+    
+    
+==================

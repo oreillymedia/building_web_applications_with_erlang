@@ -1,0 +1,169 @@
+chapter: Appmods: Dynamic Content in Yaws
+==================
+Example: Appmod config options
+
+	appmods = <path, module exclude_paths icons css js>
+    
+    
+====================================
+Example: Splitting a string
+
+1> T = "/show/3141/5926".
+"/show/3141/5926"
+2> re:split(T, "/").
+[<<>>,<<"show">>,<<"3141">>,<<"5926">>]
+3> string:tokens(T, "/").
+["show","3141","5926"]
+    
+    
+====================================
+Example: Path
+
+path(Path) ->
+    Elements = re:split(Path,"/", [{return, list}, trim]),
+    case Elements of 
+        ["ChatRooms", Room] ->
+            act_on_room(Room);
+        [Directory, File] ->
+            show_file(Directory, File);
+        [Directory] ->
+            show_directory(Directory)
+    end.
+    
+    
+====================================
+Example: Cookies
+
+<erl>
+out(Arg) ->
+    Headers = Arg#arg.headers,
+    Cookie  = Headers#headers.cookie,
+    Prefs =  yaws_api:find_cookie_val("Prefs", Cookie),
+    {html, Prefs}.
+</erl>
+    
+    
+====================================
+Example: Cookie session handling (session.erl)
+
+-record(myopaque, {udata,
+                   times = 0,
+                   foobar}).
+
+out(A) ->
+    H = A#arg.headers,
+    C = H#headers.cookie,
+    case yaws_api:find_cookie_val("baz", C) of
+        [] ->
+            M = #myopaque{},
+            Cookie = yaws_api:new_cookie_session(M),
+            Data = {ehtml,
+                    {html,[],
+                     ["I just set your cookie to ", Cookie, "Click ",
+                      {a, [{href,"session1.yaws"}], " here "},
+                      "to revisit"]}},
+            CO = yaws_api:setcookie("baz",Cookie,"/"),
+            [Data, CO];
+        Cookie ->
+            case yaws_api:cookieval_to_opaque(Cookie) of
+                {ok, OP} ->
+                    OP2 = OP#myopaque{times = OP#myopaque.times + 1},
+                    yaws_api:replace_cookie_session(Cookie, OP2),
+                    Data = {ehtml,
+                            {html,[],
+                             [
+                              "Click ",
+                              {a, [{href,"session1.yaws"}], " here "},
+                              "to revisit",
+                              {p, [], f("You have been here ~p times", 
+                                        [OP2#myopaque.times])},
+                              {p, [], f("Your cookie is ~s", [Cookie])}]}},
+                    Data;
+                {error, no_session} ->
+                    new_session()
+            end
+    end.
+
+
+new_session() ->
+    M = #myopaque{},
+    Cookie = yaws_api:new_cookie_session(M),
+    
+    Data = {ehtml,
+            {html,[],
+             ["I just set your cookie to ", Cookie, "Click ",
+              {a, [{href,"session1.yaws"}], " here "},
+              
+              "to revisit"]}},
+    CO = yaws_api:setcookie("baz",Cookie,"/"),
+    [Data, CO].
+    
+    
+====================================
+Example: Custom access control (access-control.erl)
+
+-module('access-control').
+-include("../roulette/yaws_api.hrl").
+-export([out/1]).
+-record(user,
+	{
+	  uuid,
+	  username,
+	  passwordMD5
+	}).
+
+validate_username_password(Arg) ->
+    Username = yaws_api:queryvar(Arg, "Username"),
+    Password = yaws_api:queryvar(Arg, "Password"),
+    PasswordMD5 = crypto:md5(Password),
+    Query = fun () ->
+		    mnesia:read({username, Username})
+	    end,
+    Value = mnesia:transaction(Query),
+    case Value of
+	{atomic, []} ->
+	    {false, no_user};
+	{atomic, [UserRecord]}
+	  when UserRecord#user.passwordMD5 =:= PasswordMD5 ->
+	    {true, UserRecord#user.uuid};
+	 {atomic, [_UserRecord]} ->
+	    {false, bad_password}
+    end.
+
+out({false, Reason}, _Arg) ->
+    io:format("~p:~p Unable to login user: ~p", [?MODULE, ?LINE, Reason]),
+    {status, 401};
+out({true, Uuid}, _Arg) ->
+    io:format("~p:~p Welcome: ~p", [?MODULE, ?LINE, Uuid]),
+    {html, "Hello World"}.
+    
+out(Arg) ->    
+    out(validate_username_password(Arg), Arg).
+    
+    
+====================================
+Example: Interacting with middleware
+
+out(Arg) ->
+	BackendPid ! {webrequest, node(), Arg}
+	receive
+		{response, Data} ->
+			Data;
+		{error, ErrorMsg} ->
+			ErrorMsg
+	after 500 ->
+		[
+		 {status, 404},
+		 {html, "<h2>System timed out</h2>"}]
+	end.
+    
+    
+====================================
+Example: Interacting with a service via OTP
+
+get_data(Req) ->
+    {response, Data} = gen_server:call(?MODULE, Req),
+    Data.
+    
+    
+==================

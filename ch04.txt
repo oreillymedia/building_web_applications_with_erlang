@@ -1,0 +1,438 @@
+chapter: Implementing REST
+==================
+Example: Getting a JSON from a HTTP POST
+
+out(Arg) ->
+     {ok, Json, _} = rfc4627:decode(Arg#arg.clidata),
+     io:format("~n~p:~p POST request ~p~n", 
+	       [?MODULE, ?LINE, Json]),
+     Airport	= rfc4627:get_field(Json, "airport", <<>>),
+     Airport.
+    
+    
+====================================
+Example: Airport record
+
+-record(airport,
+        {code, city, country, name }).
+    
+    
+====================================
+Example: Deriving the method
+
+method(Arg) ->
+  Rec = Arg#arg.req,
+  Rec#http_request.method.
+    
+    
+====================================
+Example: Generating the content
+
+do(Q)->
+    F = fun() ->
+                qlc:e(Q) 
+	end,
+    {atomic, Value} = mnesia:transaction(F),
+    Value.
+
+
+convert_to_json(Lines) ->
+    Data = [{obj, 
+	     [{airport, Line#airport.code},
+	      {city,    Line#airport.city},
+	      {country, Line#airport.country},
+	      {name,    Line#airport.name}]}
+	    || Line <- Lines],
+    JsonData = {obj, [{data, Data}]},
+    rfc4627:encode(JsonData).
+
+handle('GET', _Arg) ->
+    io:format("~n ~p:~p GET Request ~n", [?MODULE, ?LINE]),
+    Records = do(qlc:q([X || X <- mnesia:table(airport)])),
+    Json = convert_to_json( Records),
+    io:format("~n ~p:~p GET Request Response ~p ~n", [?MODULE, ?LINE, Json]),
+    {html, Json};
+    
+    
+====================================
+Example: Generating the content (pretty printed)
+
+{
+    "data": [
+        {
+            "airport": "BOS",
+            "city": "Boston",
+            "country": "US",
+            "name": "Logan"
+        },
+        {
+            "airport": "JFK",
+            "city": "New York",
+            "country": "US",
+            "name": "John F Kennedy"
+        }
+    ]
+}
+    
+    
+====================================
+      Accept: application/xml, application/json
+    
+    
+====================================
+Example: Format allowed
+
+requested_formats(Arg) ->
+    Rec    = Arg#arg.headers,
+    Accept = Rec#headers.accept,
+    [AcceptFormats| _]  = string:tokens(Accept, ";"),
+    string:tokens(AcceptFormats, ",").
+
+
+accept_format(Format, Headers) ->
+    Res = lists:any(fun (F) ->
+		      string:equal(Format, F) 
+	      end, Headers).
+    
+    
+====================================
+Example: JSON object
+
+{
+    "cust_id": 123,
+    "name": "Joe Armstrong",
+    "note": "wrote Erlang"
+}
+    
+    
+====================================
+Example: Decoded JSON object
+
+{obj,[{"cust_id",123},
+      {"name",<<"Joe Armstrong">>},
+      {"note",<<"wrote Erlang">>}]}
+    
+    
+====================================
+Example: Convert to JSON (this won’t work!)
+
+-module(convert_to_json).
+
+-record(test_record, {room_name, room_users, desc}).
+-export([convert_to_json/2]).
+
+convert_to_json(Type, Rec) ->
+    Fields = record_info(fields, Type),
+    Struct = [{Field, Rec#Type.Field} || Field <- Fields],
+    {obj, Struct}.
+    
+    
+====================================
+	<?xml version="1.0" encoding="utf-8"?>
+    
+    
+====================================
+Example: Sample XML
+
+<?xml version="1.0" encoding="utf-8"?>
+<user>
+  <id>31415926</id>
+  <name>Joe Armstrong</name>
+  <note>Created Erlang</note>
+</user>
+    
+    
+====================================
+Example: Parsed XML
+
+{{xmlElement,user,user,[],
+             {xmlNamespace,[],[]},
+             [],1,[],
+             [{xmlText,[{user,1}],1,[],"\n  ",text},
+              {xmlElement,id,id,[],
+                          {xmlNamespace,[],[]},
+                          [{user,1}],
+                          2,[],
+                          [{xmlText,[{id,2},{user,1}],1,[],"31415926",text}],
+                          [],".",undeclared},
+              {xmlText,[{user,1}],3,[],"\n  ",text},
+              {xmlElement,name,name,[],
+                          {xmlNamespace,[],[]},
+                          [{user,1}],
+                          4,[],
+                          [{xmlText,[{name,4},{user,...}],1,[],[...],...}],
+                          [],undefined,undeclared},
+              {xmlText,[{user,1}],5,[],"\n  ",text},
+              {xmlElement,note,note,[],
+                          {xmlNamespace,[],[]},
+                          [{user,1}],
+                          6,[],
+                          [{xmlText,[{...}|...],1,...}],
+                          [],undefined,undeclared},
+              {xmlText,[{user,1}],7,[],"\n",text}],
+             [],".",undeclared},
+ []}
+    
+    
+====================================
+Example: Generating the content
+
+handle('POST', Arg) ->
+    {ok, Json, _} = rfc4627:decode(Arg#arg.clidata),
+    io:format("~n~p:~p POST request ~p~n", 
+              [?MODULE, ?LINE, Json]),
+    Airport	= rfc4627:get_field(Json, "airport", <<>>),
+    City	= rfc4627:get_field(Json, "city", <<>>),
+    Country	= rfc4627:get_field(Json, "country", <<>>),
+    Name	= rfc4627:get_field(Json, "name", <<>>),
+    _Status = addAirport(Airport, City, Country, Name),
+    [{status, 201},
+     {html, Arg#arg.clidata}];
+    
+    
+====================================
+Example: Setting up Mnesia
+
+%% Add this to the .erlang file
+application:start(mnesia).
+mnesia:create_table(airport, 
+		    [
+		     {attributes,record_info(fields, airport)},
+		     {index, [country]}]).
+    
+    
+====================================
+Example: Full airport example
+
+-module(rest).
+-include("/usr/lib/erlang/lib/stdlib-1.17.3/include/qlc.hrl").
+-include("/usr/lib/yaws/include/yaws_api.hrl").
+-export([out/1, addAirport/4, handle/2]).
+%-compile(export_all).
+
+
+-define(RECORD_TYPE,      airport).
+-define(RECORD_KEY_FIELD, code).
+
+-record(?RECORD_TYPE,
+        {?RECORD_KEY_FIELD, city, country, name }).
+
+out(Arg) ->
+    Method = method(Arg) ,
+    io:format("~p:~p ~p Request ~n", [?MODULE, ?LINE, Method]),
+    handle(Method, Arg).
+
+method(Arg) ->
+  Rec = Arg#arg.req,
+  Rec#http_request.method.
+
+
+convert_to_json(Lines) ->
+    Data = [{obj, 
+	     [{airport, Line#?RECORD_TYPE.code},
+	      {city,    Line#?RECORD_TYPE.city},
+	      {country, Line#?RECORD_TYPE.country},
+	      {name,    Line#?RECORD_TYPE.name}]}
+	    || Line <- Lines],
+    JsonData = {obj, [{data, Data}]},
+    rfc4627:encode(JsonData).
+
+addAirport(Code, City, Country, Name) ->
+    NewRec = #?RECORD_TYPE{ 
+		 ?RECORD_KEY_FIELD	= Code,
+		 city			= City,
+		 country		= Country,
+		 name			= Name},
+    io:format("~p:~p Adding Airport ~p~n",
+	      [?MODULE,?LINE, NewRec]),
+    Add = fun() ->
+                         mnesia:write(NewRec)
+                 end,
+    {atomic, _Rec} = mnesia:transaction(Add),
+    NewRec.
+
+
+handle('GET', _Arg) ->
+    io:format("~n ~p:~p GET Request ~n", [?MODULE, ?LINE]),
+    Records = do(qlc:q([X || X <- mnesia:table(?RECORD_TYPE)])),
+    Json = convert_to_json( Records),
+    io:format("~n ~p:~p GET Request Response ~p ~n", [?MODULE, ?LINE, Json]),
+    {html, Json};
+
+handle('POST', Arg) ->
+    {ok, Json, _} = rfc4627:decode(Arg#arg.clidata),
+    io:format("~n~p:~p POST request ~p~n", 
+              [?MODULE, ?LINE, Json]),
+    Airport	= rfc4627:get_field(Json, "airport", <<>>),
+    City	= rfc4627:get_field(Json, "city", <<>>),
+    Country	= rfc4627:get_field(Json, "country", <<>>),
+    Name	= rfc4627:get_field(Json, "name", <<>>),
+    _Status = addAirport(Airport, City, Country, Name),
+    [{status, 201},
+     {html, Arg#arg.clidata}];
+
+
+
+handle('PUT', Arg) ->
+    [IndexValue,_] = string:tokens(Arg#arg.pathinfo),    
+    {ok, Json, _} = rfc4627:decode(Arg#arg.clidata),
+    io:format("~p:~p PUT request ~p ~p~n",
+              [?MODULE, ?LINE, IndexValue, Json]),
+    Airport	= rfc4627:get_field(Json, "airport", <<>>),
+    City	= rfc4627:get_field(Json, "city", <<>>),
+    Country	= rfc4627:get_field(Json, "country", <<>>),
+    Name	= rfc4627:get_field(Json, "name", <<>>),
+
+    NewRec = #?RECORD_TYPE{
+		 ?RECORD_KEY_FIELD	= Airport,
+		 city			= City,
+		 country		= Country,
+		 name			= Name},
+
+    io:format("~p:~p Renaming ~p", 
+              [?MODULE, ?LINE, NewRec]),
+    ChangeName = fun() ->
+			 mnesia:delete(
+			   {?RECORD_KEY_FIELD, IndexValue}),			     
+                         mnesia:write(NewRec)
+                 end,
+    {atomic, _Rec} = mnesia:transaction(ChangeName),
+    [{status, 200},
+     {html, IndexValue}];
+
+
+handle('DELETE', Arg) ->
+
+    [IndexValue, _ ] = string:tokens(Arg#arg.pathinfo),    
+    io:format("~p:~p DELETE request ~p",
+              [?MODULE, ?LINE, IndexValue]),
+
+    Delete = fun() ->
+                     mnesia:delete(
+                       {?RECORD_KEY_FIELD, IndexValue})
+             end,
+
+    Resp = mnesia:transaction(Delete),
+    case Resp of
+        {atomic, ok} ->
+            [{status, 204}];
+        {_, Error} ->
+            io:format("~p:~p Error ~p ", 
+                      [?MODULE, ?LINE, Error]),
+            [{status, 400},
+             {html, Error}]
+    end;
+
+
+handle(Method,_) ->
+    [{error, "Unknown method " ++ Method},
+     {status, 405},
+     {header, "Allow: GET, HEAD, POST, PUT, DELETE"}
+     ].
+
+
+do(Q)->
+    F = fun() ->
+                qlc:e(Q) 
+	end,
+    {atomic, Value} = mnesia:transaction(F),
+    Value.
+    
+    
+====================================
+Example: CoffeeScript frontend (airport.coffee)
+
+makeModel = ->
+        Ext.define("Airport",
+                extend: "Ext.data.Model",
+                fields:[
+                        {name: "airport"}
+                        {name: "city"}
+                        {name: "country"}
+                        {name: "name"}
+                        ]
+        )
+
+makeStore = ->
+        model = makeModel()
+        store = Ext.create("Ext.data.Store",
+                autoLoad : true
+                autoSync : true
+                model    : model
+                proxy    :
+                        type   : "rest"
+                        url    : "airports.yaws" # Will need to change the backend here
+                        reader :
+                                type: "json"
+                                root: "data"
+                        writer:
+                                type: "json"
+        )
+
+setupAirports = ->
+        store      = makeStore()
+        rowEditing = Ext.create "Ext.grid.plugin.RowEditing"
+        grid       = Ext.create "Ext.grid.Panel"
+                renderTo : document.body
+                plugins  : [rowEditing]
+                width    : 500
+                height   : 300
+                title    : "Airports"
+                store    : store
+                columns:
+                        [
+                                {
+                                        text      : 'Airport',
+                                        width     : 60
+                                        sortable  : true
+                                        dataIndex : "airport"
+                                        editor    : {allowBlank: false}
+                                }
+                                {
+                                        text      : "City"
+                                        dataIndex : "city"
+                                        sortable  : true
+                                        editor    : {allowBlank: false}
+                                }
+                                {
+                                        text      : "Country"
+                                        dataIndex : "country"
+                                        sortable  : true
+                                        editor    : {allowBlank: false}
+                                }
+                                {
+                                        text      : "Airport Name"
+                                        dataIndex : "name"
+                                        sortable  : true
+                                        editor    : {allowBlank: false}
+                                }
+                        ]
+                dockedItems:
+                        [
+                                xtype: "toolbar"
+                                items:
+                                        [
+                                                {
+                                                        text: "Add"
+                                                        handler: ->
+                                                                store.insert(0, new Airport())
+                                                                rowEditing.startEdit(0,0)
+                                                }
+                                                {
+                                                        itemId: 'delete'
+                                                        text: "Delete"
+                                                        handler:  () ->
+                                                                selection = grid
+                                                                        .getView()
+                                                                        .getSelectionModel()
+                                                                        .getSelection()[0]
+                                                                if(selection)
+                                                                        store.remove(selection)
+                                                }
+                                        ]
+                        ]
+
+Ext.onReady setupAirports
+    
+    
+==================

@@ -1,0 +1,44 @@
+chapter: Streaming
+==================
+Example: Setting up streaming (stream.yaws)
+
+<erl>
+ out(A) ->
+    io:format("~nStarting audio stream~n"),
+    spawn(streaming, stream_data, [self()]),
+    {streamcontent, "audio/mp3", <<>>}.
+</erl>
+    
+    
+====================================
+Example: Sending data to a stream (streaming.erl)
+
+-module(streaming).
+
+-export([stream_data/1]).
+
+stream_data(Pid) ->
+    File    = "audio.mp3",
+    FileHDL = open_file(File),
+    stream_from_file(Pid, FileHDL, 1).
+
+open_file(File) ->
+    {ok, IoDevice} = file:open(File,
+			       [read, binary]),
+    IoDevice.
+    
+stream_from_file(Pid, File, I) ->
+    Result = file:read(File, 4096),
+    case Result of
+	{ok, Data} ->
+	    yaws_api:stream_chunk_deliver_blocking(Pid,Data),
+	    stream_from_file(Pid, File, I+1);
+	eof ->
+	    yaws_api:stream_chunk_end(Pid);
+	{error,Reason}->
+	    error_logger:error_msg("~p:~p Error ~p ~n", 
+				   [?MODULE, ?LINE, Reason])
+    end.
+    
+    
+==================
